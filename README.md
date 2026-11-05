@@ -170,25 +170,3 @@ test_app.py::test_place_order_validation_errors PASSED
 | `GET` | `/api/history?restaurant_id={id}` | Inspect immutable ETA calculation audit records |
 
 ---
-
-## 8. Interview Talking Guide (For 1–1.5 YOE Engineers)
-
-When explaining this project in an interview, speak naturally and confidently using these talking points:
-
-### Q1: "Walk me through how you solved this problem."
-> *"I designed the system around the core reality that kitchen countdowns aren't simple stopwatches—they are resource-constrained schedules. I created a 3-part solution:*
-> 1. *A database schema in SQLite modeling stations, staff skills, and multi-step dishes.*
-> 2. *A scheduling engine in `scheduler.py` that tracks when each station and chef becomes free using timestamp dictionaries, ensuring sequential steps wait for their predecessors and resources.*
-> 3. *A FastAPI web service with a vanilla JavaScript frontend that ticks down every second and polls every 5 seconds to stay synchronized."*
-
-### Q2: "Why did you choose this architecture instead of a complex queue or message broker?"
-> *"For a restaurant kitchen with 10–50 active orders, introducing Celery, Redis, or Kafka would be over-engineering. In-process calculation using SQLite transactions is fast (sub-millisecond), strictly consistent, has zero operational overhead, and is very easy to debug and maintain."*
-
-### Q3: "How does your system handle Part 2 (Multi-Restaurant)?"
-> *"I avoided hardcoding any restaurant logic in Python. The menu, stations, staff skills, and safety buffer percentages are all stored in database configuration tables keyed by `restaurant_id`. For example, MoonWalk has a 10% buffer and a Grill/Fryer/Barista setup, while Orion Pizza has a 15% buffer with DoughTable and Woodfired Oven. Adding another restaurant requires zero code changes."*
-
-### Q4: "What happens when an order is cancelled?"
-> *"When an order is cancelled, we update its status in the database and immediately trigger `calculate_kitchen_etas()` with `trigger_reason='ORDER_CANCELLED'`. Because cancelled orders are omitted from the active queue, downstream orders immediately claim the freed stations and their ready times move forward. The event is also recorded in `eta_history` for full auditing."*
-
-### Q5: "How did you solve the bug where coffee showed 40 minutes?"
-> *"In real kitchens, beverage stations operate in parallel with cooking lines. I made Cold Coffee self-contained at the `Barista` counter with dedicated barista staff (Bob). This eliminated contention with the Grill and Plating stations, allowing cold coffee to finish in its standard 4.4 minutes regardless of how many burgers are queued."*
