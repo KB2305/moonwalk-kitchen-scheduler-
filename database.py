@@ -29,7 +29,7 @@ def init_db():
     conn = get_db()
     cursor = conn.cursor()
 
-    # 1. Restaurants table (Part 2: Multi-restaurant support)
+    # 1. Restaurants table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS restaurants (
             id TEXT PRIMARY KEY,
@@ -105,7 +105,7 @@ def init_db():
         );
     """)
 
-    # 8. ETA History table (Part 1 required: Immutable audit trail)
+    # 8. ETA calculation audit history table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS eta_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -209,8 +209,7 @@ def seed_data():
     ])
 
     # ==========================================
-    # 2. Orion Pizza (Part 2: Multi-Restaurant Proof)
-    # Shows independent menu, stations, staff, and buffer
+    # 2. Orion Pizza (Multi-tenant sample)
     # ==========================================
     cursor.execute("""
         INSERT INTO restaurants (id, name, buffer_percentage, algorithm)

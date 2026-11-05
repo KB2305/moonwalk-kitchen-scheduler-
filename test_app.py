@@ -316,7 +316,7 @@ def test_cancellation_frees_capacity_and_recalculates():
 
 def test_multi_restaurant_isolation():
     """
-    Part 2 Requirement:
+    Multi-tenant isolation:
     MoonWalk and Orion Pizza have separate kitchens, menus, and buffer percentages.
     An order in MoonWalk should not affect an order in Orion Pizza.
     """
@@ -366,7 +366,7 @@ def test_multi_restaurant_isolation():
 
 def test_eta_history_audit_trail():
     """
-    Part 1 Requirement:
+    Audit trail verification:
     Verify that every calculation appends an immutable audit record to eta_history
     with order_id, calculated_at, estimated_duration_seconds, actual_elapsed_seconds, trigger_reason, and algorithm.
     """

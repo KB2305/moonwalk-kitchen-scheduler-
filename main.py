@@ -71,7 +71,7 @@ def serve_homepage():
 
 @app.get("/api/restaurants")
 def get_restaurants():
-    """Returns a list of all configured restaurants (Part 2)."""
+    """Returns a list of all configured restaurants."""
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("SELECT id, name, buffer_percentage, algorithm FROM restaurants;")

@@ -1,20 +1,7 @@
 """
-scheduler.py - Kitchen Scheduling & ETA Calculation Engine
-
-How it works:
-1. Tracks when each station and employee becomes free using simple dictionaries:
-   - station_free_at = {"Grill": 12:00, "Fryer": 12:00, "Barista": 12:00, ...}
-   - staff_free_at = {"Alice": 12:00, "Bob": 12:00, "Charlie": 12:00}
-2. Processes orders in the order they arrived (FIFO).
-3. For each preparation step:
-   - It finds when the previous step finishes.
-   - It checks when the required station and qualified employee are free.
-   - It calculates: start_time = max(previous_step_finish, station_free_time, staff_free_time, current_time)
-   - It calculates: finish_time = start_time + duration
-   - It updates the station and employee to be busy until finish_time.
-4. Adds the restaurant safety buffer (e.g. 10%) once to the predicted preparation duration.
-5. Overall order ETA is the maximum of all dish ETAs in that order.
-6. Saves the calculated ready times and records the calculation in the audit history table.
+Kitchen scheduling engine for calculating order and dish preparation times.
+Simulates kitchen throughput based on station capacities, chef skill sets,
+and sequential dish preparation steps.
 """
 import time
 from database import get_db
@@ -180,7 +167,7 @@ def calculate_kitchen_etas(restaurant_id: str = "moonwalk", current_time: float 
             WHERE id = ?;
         """, (order_ready_at, order_id))
 
-        # Save immutable audit record into eta_history (Part 1 requirement)
+        # Record calculation in audit history table
         actual_elapsed = max(0.0, sim_now - order_created_at)
         estimated_duration = max(0.0, order_ready_at - sim_now)
 
