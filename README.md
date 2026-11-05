@@ -37,7 +37,7 @@ The engine in `scheduler.py` uses a **Resource Availability Timeline**:
 4. **Order Completion**: Overall order ETA equals the maximum ready time among its dishes:
    $$\text{order\_ready\_at} = \max(\text{dish\_ready\_times})$$
 5. **Dynamic Updates**: Recalculations are automatically triggered when new orders arrive, orders complete, or orders are cancelled (immediately freeing capacity for queued orders).
-6. **Audit Trail**: Every calculation is logged in an append-only `eta_history` database table recording timestamp, estimated duration, actual elapsed time, algorithm, and trigger reason.
+6. **Audit Trail**: Every calculation is logged in an append-only `eta_history` database table recording timestamp, estimated duration, actual elapsed time, order status, algorithm, and trigger reason.
 
 ---
 
@@ -82,5 +82,8 @@ pytest test_app.py -v
 | `GET` | `/api/menu?restaurant_id={id}` | Get dishes, stations, and staff for a restaurant |
 | `POST` | `/api/orders` | Place a customer order and receive dish & order ETAs |
 | `GET` | `/api/orders/{order_id}` | Poll remaining countdown seconds and statuses |
-| `POST` | `/api/orders/{order_id}/cancel` | Cancel order and recalculate kitchen schedules |
+| `POST` | `/api/orders/{order_id}/items` | Add extra dish items to an active order |
+| `POST` | `/api/orders/{order_id}/items/{item_id}/cancel` | Cancel an individual dish within an order |
+| `POST` | `/api/orders/{order_id}/cancel` | Cancel entire order and recalculate kitchen schedules |
+| `GET` | `/api/active-orders` | List all active orders and their countdown timers |
 | `GET` | `/api/history?restaurant_id={id}` | Retrieve immutable ETA calculation audit logs |

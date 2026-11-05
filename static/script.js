@@ -1,6 +1,7 @@
-// MoonWalk Customer Countdown Frontend Logic
+// MoonWalk Kitchen Scheduling & Live Countdown Timers (Customer Table View)
 let currentOrderId = null;
 let currentOrderData = null;
+let currentMenuDishes = [];
 let timerInterval = null;
 let pollingInterval = null;
 let selectedRestaurant = "moonwalk";
@@ -13,21 +14,25 @@ const orderForm = document.getElementById("orderForm");
 const customerName = document.getElementById("customerName");
 const emptyState = document.getElementById("emptyState");
 const orderDisplay = document.getElementById("orderDisplay");
-const dispOrderId = document.getElementById("dispOrderId");
-const dispCustomer = document.getElementById("dispCustomer");
-const dispStatus = document.getElementById("dispStatus");
-const dispBigClock = document.getElementById("dispBigClock");
-const dispReadyTime = document.getElementById("dispReadyTime");
-const dishList = document.getElementById("dishList");
-const btnCancel = document.getElementById("btnCancel");
 const btnRefresh = document.getElementById("btnRefresh");
 const btnReloadHistory = document.getElementById("btnReloadHistory");
+const btnResetKitchen = document.getElementById("btnResetKitchen");
 const historyTable = document.getElementById("historyTable");
 
 // Initialize on page load
 window.addEventListener("DOMContentLoaded", () => {
   loadMenu(selectedRestaurant);
   loadHistory(selectedRestaurant);
+
+  // Restore active order for this specific table session if exists
+  const savedOrderId = sessionStorage.getItem("table_order_id");
+  if (savedOrderId) {
+    currentOrderId = savedOrderId;
+    fetchOrderStatus(savedOrderId);
+  }
+
+  startGlobalTimer();
+  startPolling();
 
   restaurantSelect.addEventListener("change", (e) => {
     selectedRestaurant = e.target.value;
@@ -40,20 +45,35 @@ window.addEventListener("DOMContentLoaded", () => {
     await placeOrder();
   });
 
-  btnCancel.addEventListener("click", async () => {
-    if (!currentOrderId) return;
-    if (confirm("Cancel this order? Kitchen capacity will be released immediately.")) {
-      await cancelOrder();
-    }
-  });
+  if (btnRefresh) {
+    btnRefresh.addEventListener("click", () => {
+      if (currentOrderId) fetchOrderStatus(currentOrderId);
+    });
+  }
 
-  btnRefresh.addEventListener("click", () => {
-    if (currentOrderId) fetchOrderStatus(currentOrderId);
-  });
+  if (btnReloadHistory) {
+    btnReloadHistory.addEventListener("click", () => {
+      loadHistory(selectedRestaurant);
+    });
+  }
 
-  btnReloadHistory.addEventListener("click", () => {
-    loadHistory(selectedRestaurant);
-  });
+  if (btnResetKitchen) {
+    btnResetKitchen.addEventListener("click", async () => {
+      if (confirm("Clear all active orders and reset kitchen queue?")) {
+        try {
+          await fetch("/api/reset", { method: "POST" });
+          sessionStorage.removeItem("table_order_id");
+          currentOrderId = null;
+          currentOrderData = null;
+          orderDisplay.style.display = "none";
+          emptyState.style.display = "block";
+          loadHistory(selectedRestaurant);
+        } catch (err) {
+          console.error("Reset error:", err);
+        }
+      }
+    });
+  }
 });
 
 // Helper for icons
@@ -66,53 +86,243 @@ function getDishIcon(name) {
   return "🍽️";
 }
 
-// 1. Load menu from backend
+// Load menu and stations
 async function loadMenu(restaurantId) {
   try {
     const res = await fetch(`/api/menu?restaurant_id=${restaurantId}`);
+    if (!res.ok) throw new Error("Failed to load menu");
     const data = await res.json();
+
+    currentMenuDishes = data.dishes || [];
+
+    // Render stations and staff
+    kitchenStations.innerHTML = "";
+    data.stations.forEach(st => {
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.innerHTML = `<strong>${st}</strong>`;
+      kitchenStations.appendChild(tag);
+    });
+    data.staff.forEach(st => {
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.innerHTML = `Chef: <strong>${st.name}</strong> (${st.skills})`;
+      kitchenStations.appendChild(tag);
+    });
 
     // Render menu items
     menuList.innerHTML = "";
-    data.dishes.forEach(dish => {
+    data.dishes.forEach(d => {
       const item = document.createElement("div");
       item.className = "menu-item";
       item.innerHTML = `
-        <div>
-          <div class="dish-name">${getDishIcon(dish.name)} ${dish.name} (₹${dish.price})</div>
-          <div class="dish-cat">${dish.category}</div>
+        <div class="menu-item-info">
+          <span class="menu-item-icon">${getDishIcon(d.name)}</span>
+          <div>
+            <div class="menu-item-name">${d.name}</div>
+            <div class="menu-item-cat">${d.category}</div>
+          </div>
         </div>
-        <input type="number" min="0" max="10" value="0" data-id="${dish.id}" class="qty-input">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span class="menu-item-price">Rs ${d.price}</span>
+          <input type="number" min="0" max="10" value="0" class="qty-input" data-id="${d.id}" data-name="${d.name}">
+        </div>
       `;
       menuList.appendChild(item);
     });
-
-    // Default first dish to 1 portion
-    const firstInput = menuList.querySelector(".qty-input");
-    if (firstInput) firstInput.value = "1";
-
-    // Render kitchen stations & staff
-    kitchenStations.innerHTML = "";
-    data.stations.forEach(st => {
-      const tag = document.createElement("div");
-      tag.className = "tag";
-      tag.innerHTML = `Station: <strong>${st}</strong>`;
-      kitchenStations.appendChild(tag);
-    });
-    data.staff.forEach(s => {
-      const tag = document.createElement("div");
-      tag.className = "tag";
-      tag.innerHTML = `Chef: <strong>${s.name}</strong> (${s.skills})`;
-      kitchenStations.appendChild(tag);
-    });
   } catch (err) {
-    console.error("Failed to load menu:", err);
+    console.error("Menu load error:", err);
   }
 }
 
-// 2. Submit order to backend
+// Fetch order status for this table
+async function fetchOrderStatus(orderId) {
+  try {
+    const res = await fetch(`/api/orders/${orderId}`);
+    if (res.ok) {
+      const data = await res.json();
+      currentOrderData = data;
+      renderCurrentOrder();
+    } else {
+      sessionStorage.removeItem("table_order_id");
+      currentOrderId = null;
+      currentOrderData = null;
+      orderDisplay.style.display = "none";
+      emptyState.style.display = "block";
+    }
+  } catch (err) {
+    console.warn("Polling error:", err);
+  }
+}
+
+// Render this table's order
+function renderCurrentOrder() {
+  if (!currentOrderData) {
+    emptyState.style.display = "block";
+    orderDisplay.style.display = "none";
+    return;
+  }
+
+  emptyState.style.display = "none";
+  orderDisplay.style.display = "block";
+
+  const order = currentOrderData;
+  const isCancelled = order.status === "CANCELLED";
+
+  // Menu dropdown for adding extra dishes
+  const dishOptions = currentMenuDishes
+    .map(d => `<option value="${d.id}">${d.name} (Rs ${d.price})</option>`)
+    .join("");
+
+  // Dishes HTML with individual cancel dish buttons
+  const dishesHtml = order.dishes
+    .map(dish => {
+      const dishCancelled = dish.status === "CANCELLED" || isCancelled;
+      return `
+        <div class="dish-card">
+          <div>
+            <div class="dish-name" style="${dishCancelled ? 'text-decoration: line-through; opacity: 0.7;' : ''}">
+              ${getDishIcon(dish.name)} ${dish.name}
+            </div>
+            <div class="dish-cat">
+              Status: <span class="badge ${dishCancelled ? 'badge-cancelled' : 'badge-prep'}">${dish.status}</span>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div class="dish-clock" id="clock-dish-${dish.order_item_id}" style="${dishCancelled ? 'color: #ef4444;' : ''}">
+              ${dishCancelled ? 'CANCELLED' : '--:--'}
+            </div>
+            ${!dishCancelled && !isCancelled ? `
+              <button type="button" class="btn btn-small btn-danger" onclick="cancelSingleDish(${dish.order_item_id})" title="Cancel only this dish">
+                ✕ Cancel Dish
+              </button>
+            ` : ''}
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+
+  orderDisplay.innerHTML = `
+    <div class="order-meta">
+      <div>
+        <span class="label">ORDER ID</span>
+        <div class="val">${order.order_id}</div>
+      </div>
+      <div>
+        <span class="label">TABLE / CUSTOMER</span>
+        <div class="val">${order.customer_name}</div>
+      </div>
+      <div>
+        <span class="label">STATUS</span>
+        <span class="badge ${isCancelled ? 'badge-cancelled' : 'badge-prep'}">${order.status}</span>
+      </div>
+    </div>
+
+    <div class="main-clock-box">
+      <div class="clock-label">Full Order Ready In</div>
+      <div class="big-clock" id="dispBigClock" style="${isCancelled ? 'color: #ef4444;' : ''}">
+        ${isCancelled ? 'CANCELLED' : '--:--'}
+      </div>
+      <div class="clock-sub" id="dispReadyTime">
+        ${isCancelled ? 'This order was cancelled' : 'Freshly preparing in kitchen...'}
+      </div>
+    </div>
+
+    <h3 style="margin-bottom: 8px;">Dish Countdown Timers (${order.dishes.length} items)</h3>
+    <div class="dish-list">
+      ${dishesHtml}
+    </div>
+
+    <!-- Inline Add Dish Box -->
+    <div class="add-item-box" id="addDishBox" style="display: none; margin-top: 10px; margin-bottom: 12px; padding: 12px; background: #0f172a; border-radius: 8px; border: 1px solid #334155;">
+      <label style="display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 6px;">SELECT DISH TO ADD TO THIS ORDER:</label>
+      <div style="display: flex; gap: 8px;">
+        <select id="selectDishToAdd" style="flex: 1; padding: 8px; background: #1e293b; color: #fff; border: 1px solid #475569; border-radius: 6px;">
+          ${dishOptions}
+        </select>
+        <button type="button" class="btn btn-primary btn-small" onclick="submitAddDish()">Confirm Add</button>
+        <button type="button" class="btn btn-secondary btn-small" onclick="toggleAddDishBox()">Close</button>
+      </div>
+    </div>
+
+    <div class="actions" style="margin-top: 14px;">
+      ${!isCancelled ? `
+        <button type="button" class="btn btn-danger btn-small" onclick="cancelFullOrder()">
+          Cancel Full Order
+        </button>
+        <button type="button" class="btn btn-secondary btn-small" onclick="toggleAddDishBox()">
+          + Add Another Dish
+        </button>
+      ` : ''}
+      <button type="button" class="btn btn-secondary btn-small" onclick="startNewTableOrder()">
+        + Place New Order
+      </button>
+    </div>
+  `;
+
+  updateClockTicks();
+}
+
+// 1-second countdown loop
+function startGlobalTimer() {
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(updateClockTicks, 1000);
+}
+
+function updateClockTicks() {
+  if (!currentOrderData) return;
+  const now = Date.now() / 1000;
+
+  const clockEl = document.getElementById("dispBigClock");
+  const subEl = document.getElementById("dispReadyTime");
+
+  if (currentOrderData.status === "CANCELLED") {
+    if (clockEl) {
+      clockEl.textContent = "CANCELLED";
+      clockEl.style.color = "#ef4444";
+    }
+    if (subEl) subEl.textContent = "This order was cancelled";
+    return;
+  }
+
+  if (clockEl && currentOrderData.order_ready_at) {
+    const rem = Math.max(0, Math.floor(currentOrderData.order_ready_at - now));
+    clockEl.textContent = formatTime(rem);
+    if (subEl) {
+      subEl.textContent = rem === 0 ? "Order is ready to serve!" : "Freshly preparing in kitchen...";
+    }
+    if (rem === 0) clockEl.style.color = "#10b981";
+  }
+
+  currentOrderData.dishes.forEach(dish => {
+    const dClock = document.getElementById(`clock-dish-${dish.order_item_id}`);
+    if (!dClock) return;
+
+    if (dish.status === "CANCELLED" || currentOrderData.status === "CANCELLED") {
+      dClock.textContent = "CANCELLED";
+      dClock.style.color = "#ef4444";
+    } else if (dish.ready_at) {
+      const dRem = Math.max(0, Math.floor(dish.ready_at - now));
+      dClock.textContent = formatTime(dRem);
+      if (dRem === 0) dClock.style.color = "#10b981";
+    }
+  });
+}
+
+// Polling every 3 seconds so if kitchen capacity changes, timer updates automatically
+function startPolling() {
+  if (pollingInterval) clearInterval(pollingInterval);
+  pollingInterval = setInterval(() => {
+    if (currentOrderId && currentOrderData && currentOrderData.status !== "CANCELLED") {
+      fetchOrderStatus(currentOrderId);
+    }
+  }, 3000);
+}
+
+// Submit a new order for this table
 async function placeOrder() {
-  const name = customerName.value.trim() || "Guest";
+  const name = customerName.value.trim() || "Table 1";
   const inputs = document.querySelectorAll(".qty-input");
   const items = [];
 
@@ -142,136 +352,95 @@ async function placeOrder() {
       })
     });
 
-    if (!res.ok) throw new Error("Order failed");
+    if (!res.ok) throw new Error("Order submission failed");
     const data = await res.json();
-    displayOrder(data);
+
+    currentOrderId = data.order_id;
+    currentOrderData = data;
+    sessionStorage.setItem("table_order_id", data.order_id);
+
+    // Reset quantity inputs
+    inputs.forEach(input => input.value = "0");
+
+    renderCurrentOrder();
     loadHistory(selectedRestaurant);
   } catch (err) {
     alert("Error: " + err.message);
   }
 }
 
-// 3. Cancel order
-async function cancelOrder() {
+// Cancel this table's full order
+async function cancelFullOrder() {
+  if (!confirm(`Cancel this entire order? Kitchen capacity will be released immediately.`)) return;
+
   try {
     const res = await fetch(`/api/orders/${currentOrderId}/cancel`, { method: "POST" });
+    if (!res.ok) throw new Error("Cancel failed");
     const data = await res.json();
-    displayOrder(data);
+    currentOrderData = data;
+    renderCurrentOrder();
     loadHistory(selectedRestaurant);
   } catch (err) {
     alert("Cancel failed: " + err.message);
   }
 }
 
-// 4. Poll order status
-async function fetchOrderStatus(orderId) {
+// Cancel a particular dish inside this order
+async function cancelSingleDish(itemId) {
+  if (!confirm("Cancel this dish? The kitchen will release capacity for this item immediately.")) return;
+
   try {
-    const res = await fetch(`/api/orders/${orderId}`);
-    if (res.ok) {
-      const data = await res.json();
-      displayOrder(data);
-    }
+    const res = await fetch(`/api/orders/${currentOrderId}/items/${itemId}/cancel`, { method: "POST" });
+    if (!res.ok) throw new Error("Failed to cancel dish");
+    const data = await res.json();
+    currentOrderData = data;
+    renderCurrentOrder();
+    loadHistory(selectedRestaurant);
   } catch (err) {
-    console.warn("Polling error:", err);
+    alert("Cancel dish failed: " + err.message);
   }
 }
 
-// 5. Display order & start countdown
-function displayOrder(order) {
-  currentOrderId = order.order_id;
-  currentOrderData = order;
-
-  emptyState.style.display = "none";
-  orderDisplay.style.display = "block";
-
-  dispOrderId.textContent = order.order_id;
-  dispCustomer.textContent = order.customer_name;
-  dispStatus.textContent = order.status;
-
-  if (order.status === "CANCELLED") {
-    dispStatus.style.background = "#7f1d1d";
-    dispStatus.style.color = "#fecaca";
-    btnCancel.disabled = true;
-    btnCancel.style.opacity = "0.5";
-  } else {
-    dispStatus.style.background = "#854d0e";
-    dispStatus.style.color = "#fef08a";
-    btnCancel.disabled = false;
-    btnCancel.style.opacity = "1";
-  }
-
-  // Render dish cards
-  dishList.innerHTML = "";
-  order.dishes.forEach(dish => {
-    const card = document.createElement("div");
-    card.className = "dish-card";
-    card.innerHTML = `
-      <div>
-        <div class="dish-name">${getDishIcon(dish.name)} ${dish.name}</div>
-        <div class="dish-cat">Status: ${dish.status}</div>
-      </div>
-      <div class="dish-clock" id="clock-dish-${dish.order_item_id}">--:--</div>
-    `;
-    dishList.appendChild(card);
-  });
-
-  // Start local 1-second countdown
-  startTimer();
-
-  // Start 5-second polling
-  startPolling(order.order_id);
+// Toggle inline Add Dish box
+function toggleAddDishBox() {
+  const box = document.getElementById("addDishBox");
+  if (!box) return;
+  box.style.display = box.style.display === "none" ? "block" : "none";
 }
 
-function startTimer() {
-  if (timerInterval) clearInterval(timerInterval);
+// Add an extra dish to this table's active order
+async function submitAddDish() {
+  const select = document.getElementById("selectDishToAdd");
+  if (!select) return;
 
-  function update() {
-    if (!currentOrderData) return;
-    const now = Date.now() / 1000;
-
-    // Overall clock
-    if (currentOrderData.status === "CANCELLED") {
-      dispBigClock.textContent = "CANCELLED";
-      dispBigClock.style.color = "#ef4444";
-      dispReadyTime.textContent = "Order was cancelled";
-    } else if (currentOrderData.order_ready_at) {
-      const rem = Math.max(0, Math.floor(currentOrderData.order_ready_at - now));
-      dispBigClock.textContent = formatTime(rem);
-      dispReadyTime.textContent = rem === 0 ? "Ready to serve!" : "Freshly preparing in kitchen...";
-      if (rem === 0) dispBigClock.style.color = "#10b981";
-    }
-
-    // Dish clocks
-    currentOrderData.dishes.forEach(dish => {
-      const el = document.getElementById(`clock-dish-${dish.order_item_id}`);
-      if (!el) return;
-      if (dish.status === "CANCELLED" || currentOrderData.status === "CANCELLED") {
-        el.textContent = "CANCELLED";
-        el.style.color = "#ef4444";
-      } else if (dish.ready_at) {
-        const dRem = Math.max(0, Math.floor(dish.ready_at - now));
-        el.textContent = formatTime(dRem);
-        if (dRem === 0) el.style.color = "#10b981";
-      }
+  const dishId = parseInt(select.value, 10);
+  try {
+    const res = await fetch(`/api/orders/${currentOrderId}/items`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dish_id: dishId, quantity: 1 })
     });
+
+    if (!res.ok) throw new Error("Failed to add dish");
+    const data = await res.json();
+    currentOrderData = data;
+    renderCurrentOrder();
+    loadHistory(selectedRestaurant);
+  } catch (err) {
+    alert("Error adding dish: " + err.message);
   }
-
-  update();
-  timerInterval = setInterval(update, 1000);
 }
 
-function startPolling(orderId) {
-  if (pollingInterval) clearInterval(pollingInterval);
-  pollingInterval = setInterval(() => {
-    if (!currentOrderData || currentOrderData.status === "CANCELLED") {
-      clearInterval(pollingInterval);
-      return;
-    }
-    fetchOrderStatus(orderId);
-  }, 5000);
+// Reset session to place order for another table
+function startNewTableOrder() {
+  sessionStorage.removeItem("table_order_id");
+  currentOrderId = null;
+  currentOrderData = null;
+  orderDisplay.style.display = "none";
+  emptyState.style.display = "block";
 }
 
-// 6. Load audit history
+// Load history audit log
 async function loadHistory(restaurantId) {
   try {
     const res = await fetch(`/api/history?restaurant_id=${restaurantId}`);
@@ -279,7 +448,7 @@ async function loadHistory(restaurantId) {
     historyTable.innerHTML = "";
 
     if (rows.length === 0) {
-      historyTable.innerHTML = `<tr><td colspan="6" class="center">No history yet.</td></tr>`;
+      historyTable.innerHTML = `<tr><td colspan="7" class="center">No history yet.</td></tr>`;
       return;
     }
 
@@ -289,6 +458,7 @@ async function loadHistory(restaurantId) {
         <td>#${r.id}</td>
         <td><strong>${r.trigger_reason}</strong></td>
         <td>${r.order_id}</td>
+        <td><span class="badge ${r.order_status === 'CANCELLED' ? 'badge-cancelled' : 'badge-prep'}">${r.order_status || 'PREPARING'}</span></td>
         <td>${r.algorithm}</td>
         <td>${Math.round(r.estimated_duration_seconds)}s (~${Math.round(r.estimated_duration_seconds / 60)}m)</td>
         <td>${Math.round(r.actual_elapsed_seconds)}s</td>
@@ -305,4 +475,3 @@ function formatTime(sec) {
   const s = sec % 60;
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
-

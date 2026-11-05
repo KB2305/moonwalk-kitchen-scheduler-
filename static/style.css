@@ -217,6 +217,20 @@ body {
 .empty-state { text-align: center; padding: 40px 20px; }
 .empty-icon { font-size: 2.8rem; margin-bottom: 10px; }
 
+.orders-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.order-card {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid #334155;
+  border-radius: 12px;
+  padding: 18px;
+  transition: all 0.2s ease;
+}
+
 .order-meta {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -237,10 +251,10 @@ body {
   border-radius: 8px;
   font-size: 0.75rem;
   font-weight: 700;
-  background: #854d0e;
-  color: #fef08a;
   margin-top: 2px;
 }
+.badge-prep { background: #854d0e; color: #fef08a; }
+.badge-cancelled { background: #7f1d1d; color: #fecaca; }
 
 .main-clock-box {
   background: radial-gradient(circle, #1a263d 0%, #0d1322 100%);

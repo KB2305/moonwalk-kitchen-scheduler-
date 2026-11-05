@@ -1,15 +1,7 @@
 """
-test_app.py - Automated Unit & Integration Tests
-
-Covers:
-1. Database schema and seed data verification.
-2. Single dish ETA calculation with restaurant buffer.
-3. Parallel station execution (Cold Coffee is NOT blocked by Burger).
-4. Station & staff contention (Sequential queueing when 2 orders need Grill & Chef).
-5. Order cancellation freeing capacity and recalculating downstream ETAs.
-6. Multi-restaurant isolation (MoonWalk vs Orion Pizza).
-7. Append-only ETA history audit log.
-8. REST API endpoints (Menu, Orders, Polling, Cancellation, and History).
+Unit and integration tests for the kitchen scheduling system.
+Tests single-dish ETAs, parallel station execution, resource contention,
+order cancellation, multi-tenant isolation, and REST API endpoints.
 """
 import pytest
 from fastapi import HTTPException
@@ -22,9 +14,13 @@ from main import (
     place_order,
     get_order_status,
     cancel_order,
+    cancel_order_item,
     get_history,
+    add_item_to_order,
+    get_active_orders,
     OrderCreateRequest,
     OrderItemInput,
+    AddItemRequest,
 )
 
 
@@ -76,12 +72,8 @@ def test_database_initialization_and_seed():
 
 def test_coffee_standalone_eta():
     """
-    Cold Coffee:
-    Step 0: Espresso & Milk Blending (180s) at Barista station
-    Step 1: Pouring & Serving (60s) at Barista station
-    Base duration = 240 seconds (4 minutes).
-    Safety buffer = 10% (0.10).
-    Expected finish = 240 * 1.10 = 264 seconds (4.4 minutes).
+    Verify standalone ETA for Cold Coffee:
+    240s base prep + 10% safety buffer = 264s (~4.4 mins).
     """
     now = 1000.0
     conn = get_db()
@@ -113,13 +105,8 @@ def test_coffee_standalone_eta():
 
 def test_burger_standalone_eta():
     """
-    Veg Cheese Burger:
-    Step 0: Patty Grilling (420s) at Grill
-    Step 1: Bun Toasting & Dressing (240s) at Prep
-    Step 2: Plating & Wrapping (120s) at Plating
-    Base duration = 780 seconds (13 minutes).
-    Safety buffer = 10%.
-    Expected finish = 780 * 1.10 = 858 seconds (14.3 minutes).
+    Verify standalone ETA for Veg Cheese Burger:
+    780s base prep + 10% safety buffer = 858s (~14.3 mins).
     """
     now = 2000.0
     conn = get_db()
@@ -149,13 +136,8 @@ def test_burger_standalone_eta():
 
 def test_parallel_stations_coffee_not_blocked_by_burger():
     """
-    KEY USER REQUIREMENT:
-    Customer 1 orders Veg Cheese Burger (uses Grill, Prep, Plating).
-    Customer 2 orders Cold Coffee (uses Barista station with Bob).
-
-    Since the Barista station and Bob are completely independent of Grill/Plating,
-    the Cold Coffee MUST NOT wait behind the Burger!
-    Coffee ready time is ~4.4 minutes (264s), NOT 40 minutes!
+    Verify that coffee at the Barista station runs in parallel with grilling,
+    and is not delayed by burger orders at other stations.
     """
     now = 3000.0
     conn = get_db()
@@ -204,19 +186,14 @@ def test_parallel_stations_coffee_not_blocked_by_burger():
 
     # Coffee is ready MUCH sooner than burger
     assert coffee_ready < burger_ready
-    # Coffee does NOT take 40 minutes (2400 seconds)
+    # Coffee completes within standard 5 minutes
     assert results["ORD-CUST2"]["remaining_seconds"] <= 300
 
 
 def test_station_and_staff_contention_multiple_burgers():
     """
-    Customer 1 orders Veg Cheese Burger.
-    Customer 2 orders Veg Cheese Burger.
-    Both need Grill, Prep, and Plating.
-    Order 1 finishes at now + 858s (780s base * 1.10).
-    Order 2 is scheduled sequentially behind Order 1 for Grill and Alice (Prep).
-    Unbuffered completion for Order 2 is 1440s.
-    With 10% buffer: 1440 * 1.10 = 1584 seconds.
+    Verify that two concurrent burger orders queue sequentially for the Grill.
+    Order 2 is delayed until Order 1 releases the Grill and prep staff.
     """
     now = 5000.0
     conn = get_db()
@@ -258,11 +235,8 @@ def test_station_and_staff_contention_multiple_burgers():
 
 def test_cancellation_frees_capacity_and_recalculates():
     """
-    Customer 1 orders Burger.
-    Customer 2 orders Burger (waiting behind Customer 1).
-    Customer 1 CANCELS their order.
-    The scheduler recalculates and Customer 2 gets the resources immediately!
-    Customer 2 ready time drops from 1584s down to 858s (saves 12 minutes).
+    Verify that cancelling an order immediately releases reserved stations
+    and advances the ready time for subsequent waiting orders.
     """
     now = 6000.0
     conn = get_db()
@@ -400,6 +374,7 @@ def test_eta_history_audit_trail():
     record = dict(rows[0])
     assert record["restaurant_id"] == "moonwalk"
     assert record["order_id"] == "ORD-AUDIT"
+    assert record["order_status"] == "PREPARING"
     assert record["trigger_reason"] == "TEST_NEW_ORDER"
     assert record["algorithm"] == "FIFO"
     assert record["calculated_at"] == now
@@ -409,25 +384,19 @@ def test_eta_history_audit_trail():
 
 def test_api_endpoints_flow():
     """
-    Full end-to-end API test:
-    1. get_restaurants()
-    2. get_menu()
-    3. place_order()
-    4. get_order_status()
-    5. cancel_order()
-    6. get_history()
+    Test the complete customer journey via API endpoints:
+    fetch menu, place order, poll status, cancel, and verify history.
     """
-    # 1. Restaurants
+    # Restaurants & menu
     rest_data = get_restaurants()
     assert len(rest_data) >= 2
     assert any(r["id"] == "moonwalk" for r in rest_data)
 
-    # 2. Menu
     menu_data = get_menu(restaurant_id="moonwalk")
     assert len(menu_data["dishes"]) == 3
     coffee_dish = next(d for d in menu_data["dishes"] if d["name"] == "Cold Coffee")
 
-    # 3. Place order
+    # Place order
     req = OrderCreateRequest(
         restaurant_id="moonwalk",
         customer_name="Divya",
@@ -440,18 +409,18 @@ def test_api_endpoints_flow():
     assert order_data["dishes"][0]["name"] == "Cold Coffee"
     assert order_data["order_remaining_seconds"] <= 265
 
-    # 4. Poll status
+    # Poll status
     poll_data = get_order_status(order_id)
     assert poll_data["order_id"] == order_id
     assert poll_data["status"] == "PREPARING"
     assert poll_data["customer_name"] == "Divya"
 
-    # 5. Cancel order
+    # Cancel order
     cancel_data = cancel_order(order_id)
     assert cancel_data["status"] == "CANCELLED"
     assert cancel_data["dishes"][0]["status"] == "CANCELLED"
 
-    # 6. History
+    # History audit log
     history = get_history(restaurant_id="moonwalk")
     assert len(history) >= 2
     reasons = [h["trigger_reason"] for h in history]
@@ -460,7 +429,6 @@ def test_api_endpoints_flow():
 
 
 def test_place_order_validation_errors():
-    """Verifies that invalid requests are cleanly rejected."""
     # Empty items list
     with pytest.raises(HTTPException) as exc_info:
         place_order(OrderCreateRequest(customer_name="Test", items=[]))
@@ -473,3 +441,91 @@ def test_place_order_validation_errors():
             items=[OrderItemInput(dish_id=99999, quantity=1)]
         ))
     assert exc_info.value.status_code == 404
+
+
+def test_add_item_to_existing_order():
+    """Verify adding an item to an existing order recalculates timers for all dishes."""
+    menu = get_menu("moonwalk")
+    coffee = next(d for d in menu["dishes"] if d["name"] == "Cold Coffee")
+    burger = next(d for d in menu["dishes"] if d["name"] == "Veg Cheese Burger")
+
+    # Order just coffee first
+    req = OrderCreateRequest(
+        customer_name="Aditi",
+        items=[OrderItemInput(dish_id=coffee["id"], quantity=1)]
+    )
+    order = place_order(req)
+    order_id = order["order_id"]
+    assert len(order["dishes"]) == 1
+    assert order["order_remaining_seconds"] <= 265
+
+    # Customer adds a burger to the same order
+    updated = add_item_to_order(order_id, AddItemRequest(dish_id=burger["id"], quantity=1))
+    assert len(updated["dishes"]) == 2
+    dish_names = [d["name"] for d in updated["dishes"]]
+    assert "Cold Coffee" in dish_names
+    assert "Veg Cheese Burger" in dish_names
+
+    # Order timer now extends to burger duration (~858s)
+    assert updated["order_remaining_seconds"] > 800
+
+
+def test_two_tables_cancellation_flow():
+    """Verify that when Table 1 cancels, Table 2's timer drops immediately."""
+    menu = get_menu("moonwalk")
+    burger = next(d for d in menu["dishes"] if d["name"] == "Veg Cheese Burger")
+
+    # Table 1 orders Burger
+    t1 = place_order(OrderCreateRequest(customer_name="Table 1", items=[OrderItemInput(dish_id=burger["id"], quantity=1)]))
+    # Table 2 orders Burger (queued behind Table 1)
+    t2 = place_order(OrderCreateRequest(customer_name="Table 2", items=[OrderItemInput(dish_id=burger["id"], quantity=1)]))
+
+    assert t1["order_remaining_seconds"] <= 859
+    assert t2["order_remaining_seconds"] > 1200  # ~22 minutes
+
+    # Cancel Table 1
+    cancel_order(t1["order_id"])
+
+    # Table 2's status polled via active orders
+    active = get_active_orders("moonwalk")
+    assert len(active) == 1
+    assert active[0]["order_id"] == t2["order_id"]
+    # Table 2 now has Grill immediately: timer dropped to ~14 mins!
+    assert active[0]["order_remaining_seconds"] <= 859
+
+
+def test_cancel_single_dish_in_order():
+    """Verify cancelling one dish in an order frees its station while keeping other dishes active."""
+    menu = get_menu("moonwalk")
+    burger = next(d for d in menu["dishes"] if d["name"] == "Veg Cheese Burger")
+    coffee = next(d for d in menu["dishes"] if d["name"] == "Cold Coffee")
+
+    # Order both Burger and Coffee
+    req = OrderCreateRequest(
+        customer_name="Pooja",
+        items=[
+            OrderItemInput(dish_id=burger["id"], quantity=1),
+            OrderItemInput(dish_id=coffee["id"], quantity=1),
+        ]
+    )
+    order = place_order(req)
+    order_id = order["order_id"]
+    assert len(order["dishes"]) == 2
+    # Overall order takes burger duration (~858s)
+    assert order["order_remaining_seconds"] > 800
+
+    burger_item = next(d for d in order["dishes"] if d["name"] == "Veg Cheese Burger")
+    coffee_item = next(d for d in order["dishes"] if d["name"] == "Cold Coffee")
+
+    # Cancel only the Burger dish
+    updated = cancel_order_item(order_id, burger_item["order_item_id"])
+
+    # Order remains PREPARING
+    assert updated["status"] == "PREPARING"
+    dishes = {d["name"]: d for d in updated["dishes"]}
+    assert dishes["Veg Cheese Burger"]["status"] == "CANCELLED"
+    assert dishes["Cold Coffee"]["status"] == "PREPARING"
+
+    # Order timer now drops to Cold Coffee duration (~264s)
+    assert updated["order_remaining_seconds"] <= 265
+

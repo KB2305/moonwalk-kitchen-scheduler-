@@ -21,12 +21,12 @@
       </div>
       <p class="tagline">Space Kitchen Scheduling & Live Dish Countdown Timers</p>
       
-      <!-- Restaurant Picker (Part 2) -->
+      <!-- Restaurant Picker -->
       <div class="restaurant-picker">
         <label for="restaurantSelect">Restaurant:</label>
         <select id="restaurantSelect">
           <option value="moonwalk">MoonWalk Space Diner (Indian Menu)</option>
-          <option value="orion-pizza">Orion Woodfired Pizza (Part 2 Multi-Tenant)</option>
+          <option value="orion-pizza">Orion Woodfired Pizza</option>
         </select>
       </div>
     </header>
@@ -60,61 +60,31 @@
 
       <!-- Live Countdown Box -->
       <section class="card">
-        <h2>⏱️ Live Countdown Timers</h2>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h2>⏱️ Your Order Countdown</h2>
+          <button type="button" class="btn btn-small" id="btnRefresh">Refresh Timer</button>
+        </div>
         
         <div id="emptyState" class="empty-state">
           <div class="empty-icon">🪐</div>
-          <p>No active order tracked.</p>
-          <p class="sub">Place an order on the left to see live countdown timers.</p>
+          <p>No active order for this table.</p>
+          <p class="sub">Select your dishes on the left and place an order to start the live timer.</p>
         </div>
 
         <div id="orderDisplay" class="order-display" style="display: none;">
-          <div class="order-meta">
-            <div>
-              <span class="label">ORDER ID</span>
-              <div class="val" id="dispOrderId">ORD-XXXX</div>
-            </div>
-            <div>
-              <span class="label">CUSTOMER</span>
-              <div class="val" id="dispCustomer">KB</div>
-            </div>
-            <div>
-              <span class="label">STATUS</span>
-              <span class="badge" id="dispStatus">PREPARING</span>
-            </div>
-          </div>
-
-          <!-- Overall Clock -->
-          <div class="main-clock-box">
-            <div class="clock-label">Full Order Ready In</div>
-            <div class="big-clock" id="dispBigClock">--:--</div>
-            <div class="clock-sub" id="dispReadyTime">Estimated ready at: --:--</div>
-          </div>
-
-          <!-- Per-Dish Independent Timers -->
-          <h3>Dish Countdown Timers</h3>
-          <div class="dish-list" id="dishList">
-            <!-- Populated via JavaScript -->
-          </div>
-
-          <!-- Actions -->
-          <div class="actions">
-            <button type="button" class="btn btn-danger" id="btnCancel">
-              Cancel Order (Frees Kitchen)
-            </button>
-            <button type="button" class="btn btn-secondary" id="btnRefresh">
-              Refresh Timer
-            </button>
-          </div>
+          <!-- Dynamically populated for this table's order only -->
         </div>
       </section>
     </div>
 
-    <!-- ETA Calculation Audit History (Part 1 Requirement) -->
+    <!-- Calculation Audit History -->
     <section class="card history-card">
       <div class="history-title">
         <h2>📜 Calculation Audit History</h2>
-        <button type="button" class="btn btn-small" id="btnReloadHistory">Refresh History</button>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" class="btn btn-small" id="btnReloadHistory">Refresh History</button>
+          <button type="button" class="btn btn-small btn-danger" id="btnResetKitchen" title="Clear orders and start fresh">Clear Test Orders</button>
+        </div>
       </div>
       <p class="sub">Every ETA execution is logged in the database with timestamp, predicted duration, and elapsed time.</p>
 
@@ -125,13 +95,14 @@
               <th>ID</th>
               <th>Trigger Reason</th>
               <th>Order ID</th>
+              <th>Order Status</th>
               <th>Algorithm</th>
               <th>Predicted Prep</th>
               <th>Actual Elapsed</th>
             </tr>
           </thead>
           <tbody id="historyTable">
-            <tr><td colspan="6" class="center">No history recorded yet. Place an order to see the audit trail!</td></tr>
+            <tr><td colspan="7" class="center">No history recorded yet. Place an order to see the audit trail!</td></tr>
           </tbody>
         </table>
       </div>
