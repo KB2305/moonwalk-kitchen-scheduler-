@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MoonWalk — Space Diner Countdown</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;900&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="stars"></div>
+
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="brand">
+        <span class="icon">🛸</span>
+        <h1>MOONWALK</h1>
+      </div>
+      <p class="tagline">Space Kitchen Scheduling & Live Dish Countdown Timers</p>
+      
+      <!-- Restaurant Picker (Part 2) -->
+      <div class="restaurant-picker">
+        <label for="restaurantSelect">Restaurant:</label>
+        <select id="restaurantSelect">
+          <option value="moonwalk">MoonWalk Space Diner (Indian Menu)</option>
+          <option value="orion-pizza">Orion Woodfired Pizza (Part 2 Multi-Tenant)</option>
+        </select>
+      </div>
+    </header>
+
+    <div class="grid">
+      <!-- Order Placement Box -->
+      <section class="card">
+        <h2>🚀 Place New Order</h2>
+        <p class="sub">Select dishes to place your order with the kitchen.</p>
+
+        <form id="orderForm">
+          <div class="form-group">
+            <label for="customerName">Customer Name</label>
+            <input type="text" id="customerName" placeholder="e.g. KB" required value="KB">
+          </div>
+
+          <div class="menu-list" id="menuList">
+            <div class="loading">Loading kitchen menu...</div>
+          </div>
+
+          <button type="submit" class="btn btn-primary" id="btnPlaceOrder">
+            Transmitting Order to Kitchen
+          </button>
+        </form>
+
+        <div class="kitchen-info">
+          <h3>Kitchen Stations & Staff</h3>
+          <div id="kitchenStations" class="tags">Loading...</div>
+        </div>
+      </section>
+
+      <!-- Live Countdown Box -->
+      <section class="card">
+        <h2>⏱️ Live Countdown Timers</h2>
+        
+        <div id="emptyState" class="empty-state">
+          <div class="empty-icon">🪐</div>
+          <p>No active order tracked.</p>
+          <p class="sub">Place an order on the left to see live countdown timers.</p>
+        </div>
+
+        <div id="orderDisplay" class="order-display" style="display: none;">
+          <div class="order-meta">
+            <div>
+              <span class="label">ORDER ID</span>
+              <div class="val" id="dispOrderId">ORD-XXXX</div>
+            </div>
+            <div>
+              <span class="label">CUSTOMER</span>
+              <div class="val" id="dispCustomer">KB</div>
+            </div>
+            <div>
+              <span class="label">STATUS</span>
+              <span class="badge" id="dispStatus">PREPARING</span>
+            </div>
+          </div>
+
+          <!-- Overall Clock -->
+          <div class="main-clock-box">
+            <div class="clock-label">Full Order Ready In</div>
+            <div class="big-clock" id="dispBigClock">--:--</div>
+            <div class="clock-sub" id="dispReadyTime">Estimated ready at: --:--</div>
+          </div>
+
+          <!-- Per-Dish Independent Timers -->
+          <h3>Dish Countdown Timers</h3>
+          <div class="dish-list" id="dishList">
+            <!-- Populated via JavaScript -->
+          </div>
+
+          <!-- Actions -->
+          <div class="actions">
+            <button type="button" class="btn btn-danger" id="btnCancel">
+              Cancel Order (Frees Kitchen)
+            </button>
+            <button type="button" class="btn btn-secondary" id="btnRefresh">
+              Refresh Timer
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ETA Calculation Audit History (Part 1 Requirement) -->
+    <section class="card history-card">
+      <div class="history-title">
+        <h2>📜 Calculation Audit History</h2>
+        <button type="button" class="btn btn-small" id="btnReloadHistory">Refresh History</button>
+      </div>
+      <p class="sub">Every ETA execution is logged in the database with timestamp, predicted duration, and elapsed time.</p>
+
+      <div class="table-wrap">
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Trigger Reason</th>
+              <th>Order ID</th>
+              <th>Algorithm</th>
+              <th>Predicted Prep</th>
+              <th>Actual Elapsed</th>
+            </tr>
+          </thead>
+          <tbody id="historyTable">
+            <tr><td colspan="6" class="center">No history recorded yet. Place an order to see the audit trail!</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <script src="/static/script.js"></script>
+</body>
+</html>
+
