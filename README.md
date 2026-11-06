@@ -31,12 +31,18 @@ The engine in `scheduler.py` uses a **Resource Availability Timeline**:
    staff_free_at   = {"Alice": now, "Bob": now, "Charlie": now}
    ```
 2. **Step Start Calculation**:
-   $$\text{step\_start} = \max(\text{prev\_step\_finish}, \text{station\_free}, \text{staff\_free}, \text{now})$$
-3. **Safety Buffer**: The restaurant's configured buffer percentage (e.g., 10%) is applied once to the remaining preparation duration:
-   $$\text{ready\_at} = \text{now} + (\text{remaining\_duration} \times (1 + \text{buffer}))$$
+   ```python
+   step_start = max(prev_step_finish, station_free, staff_free, now)
+   ```
+3. **Safety Buffer**: The restaurant's configured buffer percentage (e.g., 10%) is applied to the remaining preparation duration:
+   ```python
+   ready_at = now + (remaining_duration * (1 + buffer))
+   ```
 4. **Order Completion**: Overall order ETA equals the maximum ready time among its dishes:
-   $$\text{order\_ready\_at} = \max(\text{dish\_ready\_times})$$
-5. **Dynamic Updates**: Recalculations are automatically triggered when new orders arrive, orders complete, or orders are cancelled (immediately freeing capacity for queued orders).
+   ```python
+   order_ready_at = max(dish_ready_times)
+   ```
+5. **Dynamic Updates**: Recalculations are automatically triggered when new orders arrive, items/orders complete, or cancellations occur (immediately freeing capacity for queued orders).
 6. **Audit Trail**: Every calculation is logged in an append-only `eta_history` database table recording timestamp, estimated duration, actual elapsed time, order status, algorithm, and trigger reason.
 
 ---
